@@ -1233,6 +1233,7 @@ const PDFViewerApplication = {
     const loadingTask = getDocument({
       ...apiParams,
       ...args,
+      withCredentials: true
     });
     this.pdfLoadingTask = loadingTask;
 
