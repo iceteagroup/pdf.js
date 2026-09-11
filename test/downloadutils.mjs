@@ -21,7 +21,7 @@ function rewriteWebArchiveUrl(url) {
   // Without this, an HTML page containing an iframe with the PDF file
   // will be served instead (issue 8920).
   const webArchiveRegex =
-    /(^https?:\/\/web\.archive\.org\/web\/)(\d+)(\/https?:\/\/.+)/g;
+    /(^https?:\/\/web\.archive\.org\/web\/)(\d+)(\/https?:\/\/.+)/;
   const urlParts = webArchiveRegex.exec(url);
   if (urlParts) {
     return `${urlParts[1]}${urlParts[2]}if_${urlParts[3]}`;
@@ -66,8 +66,6 @@ async function downloadManifestFiles(manifest) {
       await downloadFile(file, url);
     } catch (ex) {
       console.error(`Error during downloading of ${url}:`, ex);
-      fs.writeFileSync(file, ""); // making it empty file
-      fs.writeFileSync(`${file}.error`, ex.toString());
     }
   }
 }
@@ -128,4 +126,4 @@ async function verifyManifestFiles(manifest) {
   }
 }
 
-export { downloadManifestFiles, verifyManifestFiles };
+export { calculateMD5, downloadManifestFiles, verifyManifestFiles };

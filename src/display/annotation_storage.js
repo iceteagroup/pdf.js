@@ -61,8 +61,8 @@ class AnnotationStorage {
   /**
    * Get the value for a given key if it exists, or return the default value.
    * @param {string} key
-   * @param {Object} defaultValue
-   * @returns {Object}
+   * @param {object} defaultValue
+   * @returns {object}
    */
   getValue(key, defaultValue) {
     const value = this.#storage.get(key);
@@ -76,7 +76,7 @@ class AnnotationStorage {
   /**
    * Get the value for a given key.
    * @param {string} key
-   * @returns {Object}
+   * @returns {object}
    */
   getRawValue(key) {
     return this.#storage.get(key);
@@ -109,7 +109,7 @@ class AnnotationStorage {
   /**
    * Set the value for a given key
    * @param {string} key
-   * @param {Object} value
+   * @param {object} value
    */
   setValue(key, value) {
     const obj = this.#storage.get(key);
@@ -241,9 +241,10 @@ class AnnotationStorage {
         continue;
       }
       const { type } = editorStats;
-      if (!typeToEditor.has(type)) {
-        typeToEditor.set(type, Object.getPrototypeOf(value).constructor);
-      }
+      typeToEditor.getOrInsertComputed(
+        type,
+        () => Object.getPrototypeOf(value).constructor
+      );
       stats ||= Object.create(null);
       const map = (stats[type] ||= new Map());
       for (const [key, val] of Object.entries(editorStats)) {
@@ -303,9 +304,15 @@ class AnnotationStorage {
         ids.push(value.annotationElementId);
       }
     }
+    let hash = "";
+    if (ids.length) {
+      const h = new MurmurHash3_64();
+      h.update(ids.join(","));
+      hash = h.hexdigest();
+    }
     return (this.#modifiedIds = {
       ids: new Set(ids),
-      hash: ids.join(","),
+      hash,
     });
   }
 
@@ -338,7 +345,8 @@ class PrintAnnotationStorage extends AnnotationStorage {
   }
 
   /**
-   * @returns {PrintAnnotationStorage}
+   * @type {PrintAnnotationStorage}
+   * @throws {Error} Always, since a `PrintAnnotationStorage` cannot be nested.
    */
   // eslint-disable-next-line getter-return
   get print() {

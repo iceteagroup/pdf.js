@@ -293,7 +293,7 @@ class CMap {
       }
     } else {
       for (const i in map) {
-        callback(i, map[i]);
+        callback(+i, map[i]);
       }
     }
   }
@@ -326,7 +326,7 @@ class CMap {
       c = ((c << 8) | str.charCodeAt(offset + n)) >>> 0;
       // Check each codespace range to see if it falls within.
       const codespaceRange = codespaceRanges[n];
-      for (let k = 0, kk = codespaceRange.length; k < kk; ) {
+      for (let k = 0, kk = codespaceRange.length; k < kk;) {
         const low = codespaceRange[k++];
         const high = codespaceRange[k++];
         if (c >= low && c <= high) {
@@ -345,7 +345,7 @@ class CMap {
     for (let n = 0, nn = codespaceRanges.length; n < nn; n++) {
       // Check each codespace range to see if it falls within.
       const codespaceRange = codespaceRanges[n];
-      for (let k = 0, kk = codespaceRange.length; k < kk; ) {
+      for (let k = 0, kk = codespaceRange.length; k < kk;) {
         const low = codespaceRange[k++];
         const high = codespaceRange[k++];
         if (charCode >= low && charCode <= high) {
@@ -660,7 +660,7 @@ async function extendCMap(cMap, fetchBuiltInCMap, useCMap) {
   }
   // Merge the map into the current one, making sure not to override
   // any previously defined entries.
-  cMap.useCMap.forEach(function (key, value) {
+  cMap.useCMap.forEach((key, value) => {
     if (!cMap.contains(key)) {
       cMap.mapOne(key, value);
     }

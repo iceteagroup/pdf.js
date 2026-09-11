@@ -19,6 +19,7 @@ import {
   PS_VALUE_TYPE,
   PSStackToTree,
 } from "./ast.js";
+import { stringToBytes } from "../../shared/util.js";
 import { TOKEN } from "./lexer.js";
 
 // Wasm opcodes — https://webassembly.github.io/spec/core/binary/instructions.html
@@ -98,7 +99,7 @@ function unsignedLEB128(n) {
 }
 
 function encodeASCIIString(s) {
-  return [...unsignedLEB128(s.length), ...Array.from(s, c => c.charCodeAt(0))];
+  return [...unsignedLEB128(s.length), ...stringToBytes(s)];
 }
 
 function section(id, data) {
@@ -170,7 +171,7 @@ class PsWasmCompiler {
 
   static #init() {
     // TOKEN comparison ids → Wasm f64 comparison opcodes (leave i32 on stack).
-    PsWasmCompiler.#comparisonToOp = new Map([
+    this.#comparisonToOp = new Map([
       [TOKEN.eq, OP.f64_eq],
       [TOKEN.ne, OP.f64_ne],
       [TOKEN.lt, OP.f64_lt],
@@ -179,18 +180,20 @@ class PsWasmCompiler {
       [TOKEN.ge, OP.f64_ge],
     ]);
     // Index of each import function by name.
-    PsWasmCompiler.#importIdx = Object.create(null);
+    this.#importIdx = Object.create(null);
     for (let i = 0; i < MATH_IMPORTS.length; i++) {
-      PsWasmCompiler.#importIdx[MATH_IMPORTS[i][0]] = i;
+      this.#importIdx[MATH_IMPORTS[i][0]] = i;
     }
-    PsWasmCompiler.#degToRad = Math.PI / 180;
-    PsWasmCompiler.#radToDeg = 180 / Math.PI;
+    this.#degToRad = Math.PI / 180;
+    this.#radToDeg = 180 / Math.PI;
     // Import type entries are identical on every compilation — compute once.
-    PsWasmCompiler.#importTypeEntries = MATH_IMPORTS.map(
-      ([, , , params, results]) => [FUNC_TYPE, ...vec(params), ...vec(results)]
-    );
+    this.#importTypeEntries = MATH_IMPORTS.map(([, , , params, results]) => [
+      FUNC_TYPE,
+      ...vec(params),
+      ...vec(results),
+    ]);
     // Static Wasm sections that never change between compilations.
-    PsWasmCompiler.#importSection = new Uint8Array(
+    this.#importSection = new Uint8Array(
       section(
         SECTION.import,
         vec(
@@ -204,16 +207,16 @@ class PsWasmCompiler {
       )
     );
     // One function, type index 0.
-    PsWasmCompiler.#functionSection = new Uint8Array(
+    this.#functionSection = new Uint8Array(
       section(SECTION.function, vec([[0]]))
     );
     // Min 1 page (64 KiB), no max.
     // https://webassembly.github.io/spec/core/binary/types.html#binary-limits
-    PsWasmCompiler.#memorySection = new Uint8Array(
+    this.#memorySection = new Uint8Array(
       section(SECTION.memory, vec([[0x00, 0x01]]))
     );
     // Export "fn" (func index = nImports) and "mem" (memory) for the wrapper.
-    PsWasmCompiler.#exportSection = new Uint8Array(
+    this.#exportSection = new Uint8Array(
       section(
         SECTION.export,
         vec([
@@ -228,7 +231,7 @@ class PsWasmCompiler {
     );
     // Wasm binary magic + version (constant).
     // https://webassembly.github.io/spec/core/binary/modules.html#binary-magic
-    PsWasmCompiler.#wasmMagicVersion = new Uint8Array([
+    this.#wasmMagicVersion = new Uint8Array([
       0x00,
       0x61,
       0x73,
@@ -239,9 +242,9 @@ class PsWasmCompiler {
       0x00, // version 1
     ]);
     const f64Buf = new ArrayBuffer(8);
-    PsWasmCompiler.#f64View = new DataView(f64Buf);
-    PsWasmCompiler.#f64Arr = new Uint8Array(f64Buf);
-    PsWasmCompiler.#initialized = true;
+    this.#f64View = new DataView(f64Buf);
+    this.#f64Arr = new Uint8Array(f64Buf);
+    this.#initialized = true;
   }
 
   constructor(domain, range) {
@@ -279,6 +282,21 @@ class PsWasmCompiler {
       }
       this._code.push(b);
     } while (n !== 0);
+  }
+
+  // `i32.const` immediates are signed LEB128 (Wasm spec), so they must be
+  // emitted with sign extension — the unsigned encoder mis-encodes any value
+  // whose final 7-bit group has bit 0x40 set (e.g. 64 → 0x40 → decoded as −64).
+  _emitSLEB128(n) {
+    for (;;) {
+      const b = n & 0x7f;
+      n >>= 7; // arithmetic shift keeps the sign bit
+      if ((n === 0 && (b & 0x40) === 0) || (n === -1 && (b & 0x40) !== 0)) {
+        this._code.push(b);
+        return;
+      }
+      this._code.push(b | 0x80);
+    }
   }
 
   _emitF64Const(value) {
@@ -530,11 +548,11 @@ class PsWasmCompiler {
     const shift = first.value;
     if (shift > 0) {
       code.push(OP.i32_const);
-      this._emitULEB128(shift);
+      this._emitSLEB128(shift);
       code.push(OP.i32_shl);
     } else if (shift < 0) {
       code.push(OP.i32_const);
-      this._emitULEB128(-shift);
+      this._emitSLEB128(-shift);
       code.push(OP.i32_shr_s);
     }
     code.push(OP.f64_convert_i32_s);
@@ -852,7 +870,6 @@ class PsWasmCompiler {
    * Convert the parser AST to a tree, compile each output expression, clamp
    * results to the declared range, store to linear memory, and assemble the
    * Wasm binary.
-   *
    * @param {import("./ast.js").PsProgram} program
    * @returns {Uint8Array|null}  Wasm binary, or null if compilation failed.
    */
@@ -868,7 +885,7 @@ class PsWasmCompiler {
       const min = this._range[i * 2];
       const max = this._range[i * 2 + 1];
       code.push(OP.i32_const);
-      this._emitULEB128(i * 8);
+      this._emitSLEB128(i * 8);
       if (!this._compileNode(outputs[i])) {
         return null;
       }
@@ -945,7 +962,6 @@ class PsWasmCompiler {
  * Parse and compile a PostScript Type 4 function source string into a Wasm
  * binary.  PSStackToTree handles constant folding and algebraic simplifications
  * during the parse-to-tree conversion, so no separate optimizer pass is needed.
- *
  * @param {string} source    – raw PostScript source (decoded PDF stream)
  * @param {number[]} domain  – flat [min0,max0, min1,max1, ...] array
  * @param {number[]} range   – flat [min0,max0, min1,max1, ...] array
@@ -1055,7 +1071,6 @@ function _makeWrapper(exports, nIn, nOut) {
  *
  * Note: synchronous Wasm compilation is only allowed for small modules
  * (< 4 KB in most browsers).  Type 4 functions always qualify.
- *
  * @param {string} source    – raw PostScript source (decoded PDF stream)
  * @param {number[]} domain  – flat [min0,max0, min1,max1, ...] array
  * @param {number[]} range   – flat [min0,max0, min1,max1, ...] array

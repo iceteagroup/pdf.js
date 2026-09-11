@@ -23,7 +23,6 @@ const REF_RE = /^\d+ \d+ R$/;
 
 /**
  * Renders and manages the PDF internal structure tree.
- *
  * @param {HTMLElement} treeEl
  * @param {object}      options
  * @param {Function}    options.onMarkLoading  Called with +1/-1 to track
@@ -733,11 +732,9 @@ class TreeView {
         spinner.textContent = "Loading…";
         childrenEl.append(spinner);
         this.#onMarkLoading(1);
-        if (!this.#refCache.has(cacheKey)) {
-          this.#refCache.set(cacheKey, doc.getRawData({ ref }));
-        }
+
         this.#refCache
-          .get(cacheKey)
+          .getOrInsertComputed(cacheKey, () => doc.getRawData({ ref }))
           .then(result => {
             childrenEl.replaceChildren();
             this.#buildChildren(result, doc, childrenEl);
@@ -953,18 +950,15 @@ class TreeView {
       val !== null &&
       typeof val === "object" &&
       !Array.isArray(val) &&
-      Object.prototype.hasOwnProperty.call(val, "dict") &&
-      (Object.prototype.hasOwnProperty.call(val, "bytes") ||
-        Object.prototype.hasOwnProperty.call(val, "imageData") ||
+      Object.hasOwn(val, "dict") &&
+      (Object.hasOwn(val, "bytes") ||
+        Object.hasOwn(val, "imageData") ||
         val.contentStream === true)
     );
   }
 
   #isImageStream(val) {
-    return (
-      this.#isStream(val) &&
-      Object.prototype.hasOwnProperty.call(val, "imageData")
-    );
+    return this.#isStream(val) && Object.hasOwn(val, "imageData");
   }
 
   #isFormXObjectStream(val) {
@@ -977,7 +971,7 @@ class TreeView {
       val !== null &&
       typeof val === "object" &&
       !Array.isArray(val) &&
-      Object.prototype.hasOwnProperty.call(val, "dict") &&
+      Object.hasOwn(val, "dict") &&
       val.psFunction === true
     );
   }
